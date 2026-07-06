@@ -7,10 +7,10 @@ import os
 import json
 import sys
 import time
-import dlib
 import cv2
 import numpy as np
 import paths_factory
+import recognition
 
 from i18n import _
 from recorders.video_capture import VideoCapture
@@ -26,7 +26,6 @@ if config.get("video", "recording_plugin", fallback="opencv") != "opencv":
 video_capture = VideoCapture(config)
 
 # Read config values to use in the main loop
-video_certainty = config.getfloat("video", "certainty", fallback=3.5) / 10
 exposure = config.getint("video", "exposure", fallback=-1)
 dark_threshold = config.getfloat("video", "dark_threshold", fallback=60)
 
@@ -53,29 +52,29 @@ def print_text(line_number, text):
 	cv2.putText(overlay, text, (10, height - 10 - (10 * line_number)), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
 
 
-use_cnn = config.getboolean('core', 'use_cnn', fallback=False)
+# Build the face analyzer (raises if the model pack is missing)
+try:
+	analyzer = recognition.create_analyzer(config)
+except FileNotFoundError:
+	sys.exit(1)
 
-if use_cnn:
-	face_detector = dlib.cnn_face_detection_model_v1(
-		paths_factory.mmod_human_face_detector_path()
-	)
-else:
-	face_detector = dlib.get_frontal_face_detector()
+print(_("Using execution provider: %s") % (analyzer.howdy_providers[0], ))
 
-pose_predictor = dlib.shape_predictor(paths_factory.shape_predictor_5_face_landmarks_path())
-face_encoder = dlib.face_recognition_model_v1(paths_factory.dlib_face_recognition_resnet_model_v1_path())
-
-encodings = []
+# Try to load the enrolled models of the user to show live match scores
+similarity_threshold = config.getfloat("video", "similarity_threshold", fallback=0.45)
+encodings = None
+encoding_owners = None
 models = None
 
 try:
 	user = builtins.howdy_user
-	models = json.load(open(paths_factory.user_model_path(user)))
-
-	for model in models:
-		encodings += model["data"]
+	models = recognition.load_encodings(paths_factory.user_model_path(user))
+	encodings, encoding_owners = recognition.flatten_encodings(models)
+	print(_("Showing match scores against %d enrolled model(s) of %s") % (len(models), user))
 except FileNotFoundError:
-	pass
+	print(_("No enrolled face model found, showing detection only"))
+except recognition.LegacyModelError:
+	print(_("Enrolled models are in the old incompatible format, showing detection only"))
 
 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
@@ -85,6 +84,11 @@ cv2.setMouseCallback("Howdy Test", mouse)
 
 # Enable a delay in the loop
 slow_mode = False
+# Console status of the last processed frame
+last_face_count = 0
+last_match_text = "no face"
+# Match state of the previous frame to only log transitions
+last_match_state = None
 # Count all frames ever
 total_frames = 0
 # Count all frames per second
@@ -114,6 +118,9 @@ try:
 			sec = int(frame_tm)
 			sec_frames = 0
 
+			# Print a compact status line to the console once per second
+			print("fps %2d  rec %3dms  faces %d  %s" % (fps, round(rec_tm * 1000), last_face_count, last_match_text))
+
 		# Grab a single frame of video
 		orig_frame, frame = video_capture.read_frame()
 
@@ -125,16 +132,17 @@ try:
 		# Fetch the frame height and width
 		height, width = frame.shape[:2]
 
-		# Create a histogram of the image with 8 values
-		hist = cv2.calcHist([frame], [0], None, [8], [0, 256])
-		# All values combined for percentage calculation
-		hist_total = int(sum(hist)[0])
+		# Create a histogram of the image with 8 values.
+		# Flatten because OpenCV 5 returns a 1-D array where 4.x returned 2-D.
+		hist = cv2.calcHist([frame], [0], None, [8], [0, 256]).flatten()
+		# All values combined for percentage calculation (guard against black frames)
+		hist_total = int(np.sum(hist)) or 1
 		# Fill with the overall containing percentage
 		hist_perc = []
 
 		# Loop though all values to calculate a percentage and add it to the overlay
 		for index, value in enumerate(hist):
-			value_perc = float(value[0]) / hist_total * 100
+			value_perc = float(value) / hist_total * 100
 			hist_perc.append(value_perc)
 
 			# Top left point, 10px margins
@@ -149,6 +157,7 @@ try:
 		print_text(1, _("FPS: %d") % (fps, ))
 		print_text(2, _("FRAMES: %d") % (total_frames, ))
 		print_text(3, _("RECOGNITION: %dms") % (round(rec_tm * 1000), ))
+		print_text(4, _("PROVIDER: %s") % (analyzer.howdy_providers[0].replace("ExecutionProvider", ""), ))
 
 		# Show that slow mode is on, if it's on
 		if slow_mode:
@@ -164,54 +173,63 @@ try:
 
 			rec_tm = time.time()
 
-			# Get the locations of all faces and their locations
-			# Upsample it once
-			face_locations = face_detector(frame, 1)
+			# Detect and encode all faces in the color frame
+			faces = recognition.get_faces(analyzer, orig_frame)
 			rec_tm = time.time() - rec_tm
 
-			# Loop though all faces and paint a circle around them
-			for loc in face_locations:
-				if use_cnn:
-					loc = loc.rect
+			last_face_count = len(faces)
+			if not faces:
+				last_match_text = "no face"
 
+			# Loop though all faces and paint a circle around them
+			for face in faces:
 				# By default the circle around the face is red for no match
 				color = (0, 0, 230)
 
+				# Unpack the bounding box
+				left, top, right, bottom = face.bbox.astype(int)
+
 				# Get the center X and Y from the rectangular points
-				x = int((loc.right() - loc.left()) / 2) + loc.left()
-				y = int((loc.bottom() - loc.top()) / 2) + loc.top()
+				x = int((right - left) / 2) + left
+				y = int((bottom - top) / 2) + top
 
 				# Get the raduis from the with of the square
-				r = (loc.right() - loc.left()) / 2
+				r = (right - left) / 2
 				# Add 20% padding
 				r = int(r + (r * 0.2))
 
 				# If we have models defined for the current user
-				if models:
-					# Get the encoding of the face in the frame
-					face_landmark = pose_predictor(orig_frame, loc)
-					face_encoding = np.array(face_encoder.compute_face_descriptor(orig_frame, face_landmark, 1))
+				if encodings is not None:
+					# Match this found face against the known encodings by cosine similarity
+					match_index, similarity = recognition.best_match(face.normed_embedding, encodings)
 
-					# Match this found face against a known face
-					matches = np.linalg.norm(encodings - face_encoding, axis=1)
-
-					# Get best match
-					match_index = np.argmin(matches)
-					match = matches[match_index]
-
+					matched = similarity >= similarity_threshold
 					# If a model matches
-					if 0 < match < video_certainty:
+					if matched:
 						# Turn the circle green
 						color = (0, 230, 0)
 
 						# Print the name of the model next to the circle
-						circle_text = "{} (certainty: {})".format(models[match_index]["label"], round(match * 10, 3))
+						circle_text = "{} ({:.3f} >= {:.2f})".format(
+							encoding_owners[match_index]["label"], similarity, similarity_threshold)
 						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
 					# If no approved matches, show red text
 					else:
-						cv2.putText(overlay, "no match", (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
+						circle_text = "no match ({:.3f} < {:.2f})".format(similarity, similarity_threshold)
+						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
 
-				# Draw the Circle in green
+					# Track for the console: log match/no-match transitions immediately
+					last_match_text = "sim %.3f det %.2f (%s)" % (similarity, face.det_score, encoding_owners[match_index]["label"])
+					if matched != last_match_state:
+						print(("MATCH    " if matched else "NO MATCH ") + last_match_text)
+						last_match_state = matched
+				else:
+					last_match_text = "det %.2f (no enrolled models)" % (face.det_score, )
+
+				# Show the detector confidence under the circle
+				cv2.putText(overlay, "det {:.2f}".format(face.det_score), (int(x + r / 3), y + r + 10), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 255), 0, cv2.LINE_AA)
+
+				# Draw the circle around the face
 				cv2.circle(overlay, (x, y), r, color, 2)
 
 		# Add the overlay to the frame with some transparency

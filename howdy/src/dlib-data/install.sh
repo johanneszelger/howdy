@@ -1,26 +1,37 @@
 #!/bin/bash
 
-echo "Downloading 3 required data files..."
+# Download the InsightFace model pack used for face detection and recognition.
+# The pack is extracted into ./models/<pack>/ where the recognition backend
+# (see ../recognition.py) expects to find the .onnx files.
 
-# Check if wget is installed
-if hash wget;then
+# The pack to download, override by passing a name as the first argument
+PACK="${1:-buffalo_s}"
+
+BASE_URL="https://github.com/deepinsight/insightface/releases/download/v0.7"
+ARCHIVE="${PACK}.zip"
+TARGET="models/${PACK}"
+
+echo "Downloading InsightFace model pack '${PACK}'..."
+
+# Prefer wget, fall back on curl
+if hash wget 2>/dev/null; then
 	# Check if wget supports the option to only show the progress bar
 	wget --help | grep -q "\--show-progress" && \
 		_PROGRESS_OPT="-q --show-progress" || _PROGRESS_OPT=""
 
-	# Download the archives
-	wget $_PROGRESS_OPT --tries 5 https://github.com/davisking/dlib-models/raw/master/dlib_face_recognition_resnet_model_v1.dat.bz2
-	wget $_PROGRESS_OPT --tries 5 https://github.com/davisking/dlib-models/raw/master/mmod_human_face_detector.dat.bz2
-	wget $_PROGRESS_OPT --tries 5 https://github.com/davisking/dlib-models/raw/master/shape_predictor_5_face_landmarks.dat.bz2
-
-# Otherwise fall back on curl
+	wget $_PROGRESS_OPT --tries 5 "${BASE_URL}/${ARCHIVE}"
 else
-	curl --location --retry 5 --output dlib_face_recognition_resnet_model_v1.dat.bz2 https://github.com/davisking/dlib-models/raw/master/dlib_face_recognition_resnet_model_v1.dat.bz2
-	curl --location --retry 5 --output mmod_human_face_detector.dat.bz2 https://github.com/davisking/dlib-models/raw/master/mmod_human_face_detector.dat.bz2
-	curl --location --retry 5 --output shape_predictor_5_face_landmarks.dat.bz2 https://github.com/davisking/dlib-models/raw/master/shape_predictor_5_face_landmarks.dat.bz2
+	curl --location --retry 5 --output "${ARCHIVE}" "${BASE_URL}/${ARCHIVE}"
 fi
 
-# Uncompress the data files and delete the original archive
 echo " "
-echo "Unpacking..."
-bzip2 -d -f *.bz2
+echo "Unpacking into ${TARGET}..."
+
+# The archive contains the .onnx files, extract them (flat) into the pack directory
+mkdir -p "${TARGET}"
+unzip -o -j "${ARCHIVE}" -d "${TARGET}"
+
+# Remove the downloaded archive
+rm -f "${ARCHIVE}"
+
+echo "Done."

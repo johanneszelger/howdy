@@ -76,7 +76,7 @@ class OnboardingWindow(gtk.Window):
 		eventbox.modify_bg(gtk.StateType.NORMAL, gdk.Color(red=0, green=0, blue=0))
 
 		# TODO: Better way to do this?
-		if os.path.exists(paths_factory.dlib_data_dir_path() / "shape_predictor_5_face_landmarks.dat"):
+		if os.path.exists(os.path.join(paths_factory.dlib_data_dir_path(), "models")):
 			self.downloadoutputlabel.set_text(_("Datafiles have already been downloaded!\nClick Next to continue"))
 			self.enable_next()
 			return

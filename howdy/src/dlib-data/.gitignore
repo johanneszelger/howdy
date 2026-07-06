@@ -1,2 +1,4 @@
-*.dat
-*.dat.bz2
+models/
+compiled/
+*.zip
+*.onnx

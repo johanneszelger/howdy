@@ -1,5 +1,6 @@
 import time
 
+import recognition
 from i18n import _
 
 # Import the root rubberstamp class
@@ -29,31 +30,29 @@ class nod(RubberStamp):
 
 		# Keep running the loop while we have not hit timeout yet
 		while time.time() < starttime + self.options["timeout"]:
-			# Read a frame from the camera
-			ret, frame = self.video_capture.read_frame()
+			# Read a frame from the camera (BGR frame + grayscale conversion)
+			color_frame, frame = self.video_capture.read_frame()
 
-			# Apply CLAHE to get a better picture
-			frame = self.clahe.apply(frame)
-
-			# Detect all faces in the frame
-			face_locations = self.face_detector(frame, 1)
+			# Detect all faces in the color frame
+			faces = recognition.get_faces(self.analyzer, color_frame)
 
 			# Only continue if exactly 1 face is visible in the frame
-			if len(face_locations) != 1:
+			if len(faces) != 1:
 				continue
 
-			# Get the position of the eyes and tip of the nose
-			face_landmarks = self.pose_predictor(frame, face_locations[0])
+			# The 5 SCRFD landmarks: [left_eye, right_eye, nose, left_mouth, right_mouth]
+			kps = faces[0].kps
+			nose_point = {"x": kps[2][0], "y": kps[2][1]}
 
 			# Calculate the relative distance between the 2 eyes
-			reldist = face_landmarks.part(0).x - face_landmarks.part(2).x
+			reldist = kps[0][0] - kps[1][0]
 			# Average this out with the distance found in the last frame to smooth it out
 			avg_reldist = (last_reldist + reldist) / 2
 
 			# Calculate horizontal movement (shaking head) and vertical movement (nodding)
 			for axis in ["x", "y"]:
 				# Get the location of the nose on the active axis
-				nosepoint = getattr(face_landmarks.part(4), axis)
+				nosepoint = nose_point[axis]
 
 				# If this is the first frame set the previous values to the current ones
 				if last_nosepoint[axis] == -1:

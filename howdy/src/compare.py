@@ -14,7 +14,6 @@ import sys
 import os
 import json
 import configparser
-import dlib
 import cv2
 from datetime import timezone, datetime
 import atexit
@@ -23,6 +22,8 @@ import snapshot
 import numpy as np
 import _thread as thread
 import paths_factory
+import recognition
+from recognition import LegacyModelError
 from recorders.video_capture import VideoCapture
 from i18n import _
 
@@ -40,26 +41,15 @@ def exit(code=None):
 
 
 def init_detector(lock):
-	"""Start face detector, encoder and predictor in a new thread"""
-	global face_detector, pose_predictor, face_encoder
+	"""Load the ONNX face detection + recognition models in a new thread"""
+	global analyzer
 
-	# Test if at lest 1 of the data files is there and abort if it's not
-	if not os.path.isfile(paths_factory.shape_predictor_5_face_landmarks_path()):
-		print(_("Data files have not been downloaded, please run the following commands:"))
-		print("\n\tcd " + paths_factory.dlib_data_dir_path())
-		print("\tsudo ./install.sh\n")
+	# Build the face analyzer (raises if the model pack is missing)
+	try:
+		analyzer = recognition.create_analyzer(config)
+	except FileNotFoundError:
 		lock.release()
 		exit(1)
-
-	# Use the CNN detector if enabled
-	if use_cnn:
-		face_detector = dlib.cnn_face_detection_model_v1(paths_factory.mmod_human_face_detector_path())
-	else:
-		face_detector = dlib.get_frontal_face_detector()
-
-	# Start the others regardless
-	pose_predictor = dlib.shape_predictor(paths_factory.shape_predictor_5_face_landmarks_path())
-	face_encoder = dlib.face_recognition_model_v1(paths_factory.dlib_face_recognition_resnet_model_v1_path())
 
 	# Note the time it took to initialize detectors
 	timings["ll"] = time.time() - timings["ll"]
@@ -74,7 +64,7 @@ def make_snapshot(type):
 		_("Scan time: ") + str(round(time.time() - timings["fr"], 2)) + "s",
 		_("Frames: ") + str(frames) + " (" + str(round(frames / (time.time() - timings["fr"]), 2)) + "FPS)",
 		_("Hostname: ") + os.uname().nodename,
-		_("Best certainty value: ") + str(round(lowest_certainty * 10, 1))
+		_("Best similarity value: ") + str(round(highest_similarity, 3))
 	])
 
 
@@ -114,35 +104,37 @@ dark_tries = 0
 frames = 0
 # Captured frames for snapshot capture
 snapframes = []
-# Tracks the lowest certainty value in the loop
-lowest_certainty = 10
-# Face recognition/detection instances
-face_detector = None
-pose_predictor = None
-face_encoder = None
+# Tracks the highest similarity seen in the loop (higher is a better match)
+highest_similarity = -1.0
+# Face recognition/detection instance
+analyzer = None
 
 # Try to load the face model from the models folder
 try:
-	models = json.load(open(paths_factory.user_model_path(user)))
-
-	for model in models:
-		encodings += model["data"]
+	models = recognition.load_encodings(paths_factory.user_model_path(user))
 except FileNotFoundError:
+	exit(10)
+except LegacyModelError:
+	print(_("Your face model was created with an older version of Howdy and is no longer compatible."))
+	print(_("Please re-enroll your face by running:\n"))
+	print("\tsudo howdy add\n")
 	exit(10)
 
 # Check if the file contains a model
 if len(models) < 1:
 	exit(10)
 
+# Flatten all enrolled models into a single normalized matrix
+encodings, encoding_owners = recognition.flatten_encodings(models)
+
 # Read config from disk
 config = configparser.ConfigParser()
 config.read(paths_factory.config_file_path())
 
 # Get all config values needed
-use_cnn = config.getboolean("core", "use_cnn", fallback=False)
 timeout = config.getint("video", "timeout", fallback=4)
 dark_threshold = config.getfloat("video", "dark_threshold", fallback=50.0)
-video_certainty = config.getfloat("video", "certainty", fallback=3.5) / 10
+similarity_threshold = config.getfloat("video", "similarity_threshold", fallback=0.45)
 end_report = config.getboolean("debug", "end_report", fallback=False)
 save_failed = config.getboolean("snapshots", "save_failed", fallback=False)
 save_successful = config.getboolean("snapshots", "save_successful", fallback=False)
@@ -297,31 +289,19 @@ while True:
 			frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
 			gsframe = cv2.rotate(gsframe, cv2.ROTATE_90_CLOCKWISE)
 
-	# Get all faces from that frame as encodings
-	# Upsamples 1 time
-	face_locations = face_detector(gsframe, 1)
+	# Detect and encode all faces in the frame (InsightFace expects a BGR image)
+	faces = recognition.get_faces(analyzer, frame)
 	# Loop through each face
-	for fl in face_locations:
-		if use_cnn:
-			fl = fl.rect
+	for face in faces:
+		# Match this found face against the known encodings by cosine similarity
+		match_index, similarity = recognition.best_match(face.normed_embedding, encodings)
 
-		# Fetch the faces in the image
-		face_landmark = pose_predictor(frame, fl)
-		face_encoding = np.array(face_encoder.compute_face_descriptor(frame, face_landmark, 1))
+		# Update the best similarity we've seen so far
+		if similarity > highest_similarity:
+			highest_similarity = similarity
 
-		# Match this found face against a known face
-		matches = np.linalg.norm(encodings - face_encoding, axis=1)
-
-		# Get best match
-		match_index = np.argmin(matches)
-		match = matches[match_index]
-
-		# Update certainty if we have a new low
-		if lowest_certainty > match:
-			lowest_certainty = match
-
-		# Check if a match that's confident enough
-		if 0 < match < video_certainty:
+		# Check if the match is confident enough
+		if similarity >= similarity_threshold:
 			timings["tt"] = time.time() - timings["st"]
 			timings["fl"] = time.time() - timings["fr"]
 
@@ -351,9 +331,11 @@ while True:
 				print(_("\nFrames searched: %d (%.2f fps)") % (frames, frames / timings["fl"]))
 				print(_("Black frames ignored: %d ") % (black_tries, ))
 				print(_("Dark frames ignored: %d ") % (dark_tries, ))
-				print(_("Certainty of winning frame: %.3f") % (match * 10, ))
+				print(_("Similarity of winning frame: %.3f") % (similarity, ))
+				print(_("Execution provider: %s") % (analyzer.howdy_providers[0], ))
 
-				print(_("Winning model: %d (\"%s\")") % (match_index, models[match_index]["label"]))
+				winning_model = encoding_owners[match_index]
+				print(_("Winning model: %d (\"%s\")") % (winning_model["id"], winning_model["label"]))
 
 			# Make snapshot if enabled
 			if save_successful:
@@ -370,8 +352,7 @@ while True:
 
 				rubberstamps.execute(config, gtk_proc, {
 					"video_capture": video_capture,
-					"face_detector": face_detector,
-					"pose_predictor": pose_predictor,
+					"analyzer": analyzer,
 					"clahe": clahe
 				})
 

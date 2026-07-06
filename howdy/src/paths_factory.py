@@ -1,27 +1,20 @@
 from pathlib import PurePath
 import paths
 
-models = [
-    "shape_predictor_5_face_landmarks.dat",
-    "mmod_human_face_detector.dat",
-    "dlib_face_recognition_resnet_model_v1.dat",
-]
-
 
 def dlib_data_dir_path() -> str:
+    """Base directory for the recognition model data (name kept for compatibility)"""
     return str(paths.dlib_data_dir)
 
 
-def shape_predictor_5_face_landmarks_path() -> str:
-    return str(paths.dlib_data_dir / models[0])
+def model_pack_dir_path(pack: str) -> str:
+    """Directory holding the downloaded ONNX files of an InsightFace model pack"""
+    return str(paths.dlib_data_dir / "models" / pack)
 
 
-def mmod_human_face_detector_path() -> str:
-    return str(paths.dlib_data_dir / models[1])
-
-
-def dlib_face_recognition_resnet_model_v1_path() -> str:
-    return str(paths.dlib_data_dir / models[2])
+def compiled_models_dir_path(pack: str) -> str:
+    """Directory holding the GPU-compiled model cache of a pack"""
+    return str(paths.dlib_data_dir / "compiled" / pack)
 
 
 def user_model_path(user: str) -> str:

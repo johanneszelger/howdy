@@ -26,7 +26,43 @@ Using the central authentication system (PAM), this works everywhere you would o
 
 Howdy is currently available and packaged for Debian/Ubuntu, Arch Linux, Fedora and openSUSE. If you’re interested in packaging Howdy for your distro, don’t hesitate to open an issue.
 
-**Note:** The build of dlib can hang on 100% for over a minute, give it time.
+**Note:** Face recognition runs on [ONNX Runtime](https://onnxruntime.ai/) using [InsightFace](https://github.com/deepinsight/insightface) (SCRFD detection + ArcFace 512-d embeddings). The model pack (~150 MB) is downloaded by the data dir install script.
+
+### GPU acceleration (optional)
+
+By default recognition runs on the CPU, which works everywhere. A GPU cuts
+per-frame recognition time dramatically (measured on a Radeon 890M iGPU:
+~15 ms/frame vs ~200 ms on the same machine's CPU).
+
+**NVIDIA:** install `onnxruntime-gpu` instead of `onnxruntime` and set
+`execution_provider = auto` (or `cuda`) in the config.
+
+**AMD (ROCm / MIGraphX):** AMD's current execution provider is MIGraphX (the
+older ROCm provider was removed from onnxruntime after 1.22). Setup:
+
+1. Install the ROCm runtime (HIP + MIGraphX) from AMD's apt repo — the
+   `onnxruntime_migraphx` wheel must match the ROCm version it was built for
+   (e.g. wheel from `rocm-rel-7.2.4` with ROCm 7.2.4 packages).
+2. Install the wheel from https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.4/
+   — note it is only built for specific Python versions (3.10/3.12), so a
+   dedicated virtualenv may be needed.
+3. Set `execution_provider = auto` (or `migraphx`) in the config.
+4. Run `sudo howdy compile` once: MIGraphX compiles the models for your exact
+   GPU (a few minutes), after which logins load the cached binaries in about a
+   second. Recompile after changing `model_pack` or `det_size`.
+
+Howdy always falls back to the CPU when no GPU provider is available, and
+prints the active provider in `howdy test`.
+
+Known workaround: on AMD APUs the MIGraphX provider can return stale output
+buffers (missing stream synchronization); Howdy automatically sets
+`HIP_LAUNCH_BLOCKING=1` to prevent this.
+
+**Model packs:** `buffalo_s` (default) is small and fast (~1 s cold start on
+GPU, ~900 MB peak RAM) with excellent same/different-person separation;
+`buffalo_l` is larger and slightly more robust (~2 s, ~1.5 GB). Download an
+alternative pack with `./install.sh buffalo_l` in the data directory and
+switch via the `model_pack` config value.
 
 ### Ubuntu or Linux Mint
 
@@ -134,6 +170,7 @@ howdy [-U user] [-y] command [argument]
 |-----------|-----------------------------------------------|
 | `add`     | Add a new face model for a user               |
 | `clear`   | Remove all face models for a user             |
+| `compile` | Precompile the face models for the GPU        |
 | `config`  | Open the config file in your default editor   |
 | `disable` | Disable or enable howdy                       |
 | `list`    | List all saved face models for a user         |

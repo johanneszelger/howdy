@@ -128,3 +128,15 @@ debian/howdy
 
 # Meson
 subprojects/
+howdy/src/paths.py
+
+# IDE
+.idea/
+
+# Leftover data dirs from the old dev-branch layout (model packs, compiled
+# caches and enrolled user models live there in dev checkouts)
+/src/
+
+# Downloaded model packs and compiled caches in the data dir
+howdy/src/dlib-data/models/
+howdy/src/dlib-data/compiled/

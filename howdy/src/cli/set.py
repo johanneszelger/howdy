@@ -16,7 +16,7 @@ config_path = paths_factory.config_file_path()
 if len(builtins.howdy_args.arguments) < 2:
 	print(_("Please add a setting you would like to change and the value to set it to"))
 	print(_("For example:"))
-	print("\n\thowdy set certainty 3\n")
+	print("\n\thowdy set similarity_threshold 0.45\n")
 	sys.exit(1)
 
 # Get the name and value from the cli
