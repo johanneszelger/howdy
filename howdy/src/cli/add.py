@@ -73,24 +73,24 @@ label = "Initial model"
 # some id's can be skipped, but the last id is always the maximum
 next_id = encodings[-1]["id"] + 1 if encodings else 0
 
-# Get the label from the cli arguments if provided
+# Get the label from the cli arguments if provided, no questions asked then
 if builtins.howdy_args.arguments:
-	label = builtins.howdy_args.arguments[0]
+	label = builtins.howdy_args.arguments[0][:64]
 
-# Or set the default label
 else:
+	# Set the default label
 	label = _("Model #") + str(next_id)
 
-# Keep de default name if we can't ask questions
-if builtins.howdy_args.y:
-	print(_('Using default label "%s" because of -y flag') % (label, ))
-else:
-	# Ask the user for a custom label
-	label_in = input(_("Enter a label for this new model [{}]: ").format(label))
+	# Keep the default name if we can't ask questions
+	if builtins.howdy_args.y:
+		print(_('Using default label "%s" because of -y flag') % (label, ))
+	else:
+		# Ask the user for a custom label
+		label_in = input(_("Enter a label for this new model [{}]: ").format(label))
 
-	# Set the custom label (if any) and limit it to 64 characters
-	if label_in != "":
-		label = label_in[:64]
+		# Set the custom label (if any) and limit it to 64 characters
+		if label_in != "":
+			label = label_in[:64]
 
 # Remove illegal characters
 if "," in label:
