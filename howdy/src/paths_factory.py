@@ -2,19 +2,19 @@ from pathlib import PurePath
 import paths
 
 
-def dlib_data_dir_path() -> str:
+def models_data_dir_path() -> str:
     """Base directory for the recognition model data (name kept for compatibility)"""
-    return str(paths.dlib_data_dir)
+    return str(paths.models_data_dir)
 
 
 def model_pack_dir_path(pack: str) -> str:
     """Directory holding the downloaded ONNX files of an InsightFace model pack"""
-    return str(paths.dlib_data_dir / "models" / pack)
+    return str(paths.models_data_dir / "models" / pack)
 
 
 def compiled_models_dir_path(pack: str) -> str:
     """Directory holding the GPU-compiled model cache of a pack"""
-    return str(paths.dlib_data_dir / "compiled" / pack)
+    return str(paths.models_data_dir / "compiled" / pack)
 
 
 def user_model_path(user: str) -> str:

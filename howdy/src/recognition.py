@@ -168,7 +168,7 @@ def create_analyzer(config):
 	pack_dir = paths_factory.model_pack_dir_path(pack)
 	if not os.path.isdir(pack_dir):
 		print(_("Face model pack '{pack}' has not been downloaded, please run the following commands:").format(pack=pack))
-		print("\n\tcd " + paths_factory.dlib_data_dir_path())
+		print("\n\tcd " + paths_factory.models_data_dir_path())
 		print("\tsudo ./install.sh\n")
 		raise FileNotFoundError(pack_dir)
 

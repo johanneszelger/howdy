@@ -84,12 +84,12 @@ sudo meson install -C build
 Installs to /usr/local: python sources in
 `/usr/local/lib/<arch>/howdy/`, config in `/usr/local/etc/howdy/config.ini`
 (only written if missing), `pam_howdy.so` in
-`/usr/local/lib/<arch>/security/`, data dir `/usr/local/share/dlib-data/`.
+`/usr/local/lib/<arch>/security/`, data dir `/usr/local/share/models-data/`.
 
 ## 5. Face model pack
 
 ```sh
-cd /usr/local/share/dlib-data && sudo ./install.sh          # buffalo_s (default)
+cd /usr/local/share/models-data && sudo ./install.sh          # buffalo_s (default)
 ```
 
 ## 6. Configuration

@@ -138,5 +138,5 @@ howdy/src/paths.py
 /src/
 
 # Downloaded model packs and compiled caches in the data dir
-howdy/src/dlib-data/models/
-howdy/src/dlib-data/compiled/
+howdy/src/models-data/models/
+howdy/src/models-data/compiled/
