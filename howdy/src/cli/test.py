@@ -28,6 +28,10 @@ video_capture = VideoCapture(config)
 # Read config values to use in the main loop
 exposure = config.getint("video", "exposure", fallback=-1)
 dark_threshold = config.getfloat("video", "dark_threshold", fallback=60)
+# Scale factor for the preview window (frames are small, especially IR cams)
+preview_scale = max(1, config.getint("debug", "preview_scale", fallback=2))
+# Seconds to linger on each frame when slow mode is enabled
+slow_mode_delay = 2.0
 
 # Let the user know what's up
 print(_("""
@@ -49,7 +53,7 @@ def mouse(event, x, y, flags, param):
 
 def print_text(line_number, text):
 	"""Print the status text by line number"""
-	cv2.putText(overlay, text, (10, height - 10 - (10 * line_number)), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
+	cv2.putText(overlay, text, (10, height - 10 - (14 * line_number)), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 255, 0), 1, cv2.LINE_AA)
 
 
 # Build the face analyzer (raises if the model pack is missing)
@@ -161,15 +165,15 @@ try:
 
 		# Show that slow mode is on, if it's on
 		if slow_mode:
-			cv2.putText(overlay, _("SLOW MODE"), (width - 66, height - 10), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
+			cv2.putText(overlay, _("SLOW MODE"), (width - 100, height - 10), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 0, 255), 1, cv2.LINE_AA)
 
 		# Ignore dark frames
 		if hist_perc[0] > dark_threshold:
 			# Show that this is an ignored frame in the top right
-			cv2.putText(overlay, _("DARK FRAME"), (width - 68, 16), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
+			cv2.putText(overlay, _("DARK FRAME"), (width - 102, 16), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 0, 255), 1, cv2.LINE_AA)
 		else:
 			# Show that this is an active frame
-			cv2.putText(overlay, _("SCAN FRAME"), (width - 68, 16), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
+			cv2.putText(overlay, _("SCAN FRAME"), (width - 102, 16), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 255, 0), 1, cv2.LINE_AA)
 
 			rec_tm = time.time()
 
@@ -212,11 +216,11 @@ try:
 						# Print the name of the model next to the circle
 						circle_text = "{} ({:.3f} >= {:.2f})".format(
 							encoding_owners[match_index]["label"], similarity, similarity_threshold)
-						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
+						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 255, 0), 1, cv2.LINE_AA)
 					# If no approved matches, show red text
 					else:
 						circle_text = "no match ({:.3f} < {:.2f})".format(similarity, similarity_threshold)
-						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
+						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 0, 255), 1, cv2.LINE_AA)
 
 					# Track for the console: log match/no-match transitions immediately
 					last_match_text = "sim %.3f det %.2f (%s)" % (similarity, face.det_score, encoding_owners[match_index]["label"])
@@ -227,7 +231,7 @@ try:
 					last_match_text = "det %.2f (no enrolled models)" % (face.det_score, )
 
 				# Show the detector confidence under the circle
-				cv2.putText(overlay, "det {:.2f}".format(face.det_score), (int(x + r / 3), y + r + 10), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 255), 0, cv2.LINE_AA)
+				cv2.putText(overlay, "det {:.2f}".format(face.det_score), (int(x + r / 3), y + r + 12), cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 255, 255), 1, cv2.LINE_AA)
 
 				# Draw the circle around the face
 				cv2.circle(overlay, (x, y), r, color, 2)
@@ -236,6 +240,10 @@ try:
 		alpha = 0.65
 		frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 		cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+		# Scale the preview up for readability
+		if preview_scale != 1:
+			frame = cv2.resize(frame, None, fx=preview_scale, fy=preview_scale, interpolation=cv2.INTER_LINEAR)
 
 		# Show the image in a window
 		cv2.imshow("Howdy Test", frame)
@@ -248,7 +256,7 @@ try:
 
 		# Delay the frame if slowmode is on
 		if slow_mode:
-			time.sleep(max([.5 - frame_time, 0.0]))
+			time.sleep(max([slow_mode_delay - frame_time, 0.0]))
 
 		if exposure != -1:
 			# For a strange reason on some cameras (e.g. Lenoxo X1E)
