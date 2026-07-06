@@ -28,5 +28,5 @@ def main_window_wireframe_path() -> str:
 
 
 def models_data_dir_path() -> PurePath:
-    """Return the path to the dlib data directory"""
+    """Return the path to the recognition models data directory"""
     return paths.models_data_dir

@@ -88,9 +88,9 @@ else:
 	# Ask the user for a custom label
 	label_in = input(_("Enter a label for this new model [{}]: ").format(label))
 
-	# Set the custom label (if any) and limit it to 24 characters
+	# Set the custom label (if any) and limit it to 64 characters
 	if label_in != "":
-		label = label_in[:24]
+		label = label_in[:64]
 
 # Remove illegal characters
 if "," in label:
