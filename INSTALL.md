@@ -17,32 +17,36 @@ sudo apt update && sudo apt install -y \
 
 The venv path gets baked into the PAM module at build time — keep it stable.
 The AMD GPU onnxruntime wheel only exists for specific Python versions
-(3.10/3.12), so pin 3.12 via [uv](https://docs.astral.sh/uv/):
+(3.10/3.12), so pin 3.12.
+
+SECURITY: root executes this interpreter during every authentication, so the
+entire chain (interpreter, stdlib, venv, packages) must be root-owned — never
+symlink into a home directory. uv is only used to *fetch* the interpreter;
+root then gets its own copy:
 
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh
-sudo mkdir -p /opt/howdy && sudo chown "$USER" /opt/howdy
-~/.local/bin/uv venv --seed --python 3.12 /opt/howdy/.venv
-/opt/howdy/.venv/bin/pip install numpy opencv-python insightface
+~/.local/bin/uv python install 3.12
+sudo cp -a ~/.local/share/uv/python/cpython-3.12.*-linux-x86_64-gnu /opt/python3.12
+sudo chown -R root:root /opt/python3.12
+sudo mkdir -p /opt/howdy
+sudo /opt/python3.12/bin/python3.12 -m venv /opt/howdy/.venv
+sudo /opt/howdy/.venv/bin/pip install numpy opencv-python insightface
 ```
-
-Consider `sudo chown -R root:root /opt/howdy/.venv` at the end of the install:
-root executes this interpreter during authentication, so it should not stay
-user-writable.
 
 ### onnxruntime
 
 **CPU only:**
 
 ```sh
-/opt/howdy/.venv/bin/pip install onnxruntime
+sudo /opt/howdy/.venv/bin/pip install onnxruntime
 ```
 
 **GPU only (AMD):** install the MIGraphX build instead — it must match the
 ROCm version installed in step 3:
 
 ```sh
-/opt/howdy/.venv/bin/pip install \
+sudo /opt/howdy/.venv/bin/pip install \
     https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.4/onnxruntime_migraphx-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
 ```
 
