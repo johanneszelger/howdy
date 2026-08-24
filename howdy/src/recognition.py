@@ -6,9 +6,17 @@
 # + 128-d ResNet descriptor matched by euclidean distance).
 
 import os
+import io
 import json
+import contextlib
+import warnings
 
 import numpy as np
+
+# insightface aligns every face through a scikit-image call deprecated in 0.26,
+# which would warn into the password prompt on each authentication. Scoped to that
+# one message so other deprecations still surface.
+warnings.filterwarnings("ignore", message="`estimate` is deprecated", category=FutureWarning)
 
 import paths_factory
 from i18n import _
@@ -122,6 +130,12 @@ def _load_models(pack_dir, providers, provider_options):
 	if provider_options is not None:
 		kwargs["provider_options"] = provider_options
 
+	# model_zoo.get_model prints the provider list for every session it builds,
+	# which would end up in the middle of the sudo/login prompt
+	def get_model(path):
+		with contextlib.redirect_stdout(io.StringIO()):
+			return model_zoo.get_model(path, **kwargs)
+
 	map_path = os.path.join(pack_dir, "howdy_model_map.json")
 	models = {}
 
@@ -129,14 +143,14 @@ def _load_models(pack_dir, providers, provider_options):
 		with open(map_path) as mapfile:
 			model_map = json.load(mapfile)
 		for task in ("detection", "recognition"):
-			models[task] = model_zoo.get_model(os.path.join(pack_dir, model_map[task]), **kwargs)
+			models[task] = get_model(os.path.join(pack_dir, model_map[task]))
 	except (OSError, KeyError, ValueError):
 		models = {}
 
 	if not models:
 		# No usable map: route every model in the pack and keep what we need
 		for onnx_file in sorted(glob.glob(os.path.join(pack_dir, "*.onnx"))):
-			model = model_zoo.get_model(onnx_file, **kwargs)
+			model = get_model(onnx_file)
 			if model is None:
 				continue
 			if model.taskname in ("detection", "recognition") and model.taskname not in models:
